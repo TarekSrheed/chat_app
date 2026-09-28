@@ -15,7 +15,8 @@ class AppString {
   static const String create = "Create";
   static const String cancel = "Cancel";
   static const String enterGroupName = "Please enter a group name";
-  static const String enterGroupDescription = "Please enter a group description";
+  static const String enterGroupDescription =
+      "Please enter a group description";
   static const String groupCreatedSuccessfully = "Group created successfully";
   static const String groupCreationFailed = "Failed to create group";
   static const String groupJoinSuccess = "You have joined the group";
@@ -26,15 +27,32 @@ class AppString {
   static const String enterValidPassword = "Please enter a valid password";
   static const String enterValidFullName = "Please enter your full name";
   static const String enterValidGroupName = "Please enter a valid group name";
-  static const String enterValidGroupDescription = "Please enter a valid group description";
+  static const String enterValidGroupDescription =
+      "Please enter a valid group description";
   static const String loading = "Loading...";
   static const String errorOccurred = "An error occurred. Please try again.";
-  static const String noInternetConnection = "No internet connection. Please check your network settings.";
-  static const String userNotFound = "User not found. Please check your email and try again.";
+  static const String noInternetConnection =
+      "No internet connection. Please check your network settings.";
+  static const String userNotFound =
+      "User not found. Please check your email and try again.";
   static const String wrongPassword = "Wrong password. Please try again.";
-  static const String userAlreadyExists = "User already exists. Please use a different email.";
-  static const String groupNotFound = "Group not found. Please check the group name and try again.";
-  static const String groupAlreadyExists = "Group already exists. Please use a different group name.";
-  static const String groupJoinRequestSent = "Group join request sent. Please wait for approval.";
+  static const String userAlreadyExists =
+      "User already exists. Please use a different email.";
+  static const String groupNotFound =
+      "Group not found. Please check the group name and try again.";
+  static const String groupAlreadyExists =
+      "Group already exists. Please use a different group name.";
+  static const String groupJoinRequestSent =
+      "Group join request sent. Please wait for approval.";
   static const String suggestedGroups = "Suggested Groups";
+  static const String categories = "Categories";
+  static const String logout = "Logout";
+  static const String profile = "Profile";
+  static const String groups = "Groups";
+  static const String welcome = "Welcome";
+  static const String yourEmail = "Your Email";
+  static const String yourPassword = "Your Password";
+  static const String yourFullName = "Your Full Name";
+  static const String areYouSureLogout = "Are you sure you want to logout?";
+  static const String dontHaveAccount = "Don't have an account? ";
 }

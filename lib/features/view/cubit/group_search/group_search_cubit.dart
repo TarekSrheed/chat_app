@@ -31,9 +31,8 @@ class GroupSearchCubit extends Cubit<GroupSearchState> {
           final snapshot =
               await DatabaseService().searchBycategory(userHobbies[i]);
           snapshots[i] = snapshot;
-          if (snapshot != null) {
-            _processSnapshotMembers(snapshot);
-          }
+
+          _processSnapshotMembers(snapshot);
         }
       }
 
@@ -51,7 +50,7 @@ class GroupSearchCubit extends Cubit<GroupSearchState> {
     try {
       await loadUserData();
       final snapshot = await DatabaseService().searchBycategory(category);
-      if (snapshot != null && snapshot.docs.isNotEmpty) {
+      if (snapshot.docs.isNotEmpty) {
         _processSnapshotMembers(snapshot);
       }
       emit(GroupSearchSuccess(
@@ -119,7 +118,7 @@ class GroupSearchCubit extends Cubit<GroupSearchState> {
       await loadUserData();
       final snapshot = await DatabaseService().searchByName(query);
 
-      if (snapshot != null && snapshot.docs.isNotEmpty) {
+      if (snapshot.docs.isNotEmpty) {
         _processSnapshotMembers(snapshot);
       }
 

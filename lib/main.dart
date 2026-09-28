@@ -3,7 +3,6 @@ import 'package:chat_app/features/view/screens/auth/login_screen.dart';
 import 'package:chat_app/features/view/screens/home_screen.dart';
 import 'package:chat_app/core/shared/constants.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'core/helper/helper_function.dart';
 import 'firebase_options.dart';
@@ -15,7 +14,6 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
   await NotificationService().initNotification();
-print(await FirebaseMessaging.instance.getToken());
   // if (kIsWeb) {
   //   await Firebase.initializeApp(
   //       options: FirebaseOptions(

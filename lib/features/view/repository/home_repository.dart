@@ -20,11 +20,12 @@ class HomeRepository {
     final userName = await HelperFunctions.getUserNameFromSF() ?? '';
     return UserDataModel(userName: userName, email: email);
   }
-   Stream<QuerySnapshot>? getGroupsStream(String uid) {
+
+  Stream<QuerySnapshot>? getGroupsStream(String uid) {
     return _databaseServiceBuilder(uid).getUserGroups();
   }
 
-   Future<bool> createGroup({
+  Future<bool> createGroup({
     required String userName,
     required String userId,
     required String groupName,
@@ -42,7 +43,8 @@ class HomeRepository {
       return false;
     }
   }
-   Future<bool> logout() async {
+
+  Future<bool> logout() async {
     try {
       await _authService.signOut();
       return true;

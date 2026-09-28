@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:googleapis_auth/auth_io.dart';
 import 'package:http/http.dart' as http;
+
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   print("Handling a background message: ${message.messageId}");
@@ -71,26 +72,40 @@ class NotificationService {
     });
 
     // 5. حفظ رمز الجهاز FCM Token
+    // بدلاً من await saveDeviceToken();
+    // استدعها بدون await أو داخل try-catch منعاً لأنهار التطبيق عند فشل الاتصال:
+    // saveDeviceToken().catchError((e) => print("Token save error: $e"));
     await saveDeviceToken();
   }
 
   Future<void> saveDeviceToken() async {
-    String? token = await _fcm.getToken();
-    final user = FirebaseAuth.instance.currentUser;
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
 
-    if (token != null && user != null) {
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .update({
-        'fcmToken': token,
-      });
+      // محاولة جلب التوكن بأمان
+      String? token = await _fcm.getToken().timeout(
+            const Duration(seconds: 10),
+            onTimeout: () => null,
+          );
+
+      if (token != null) {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .update({
+          'fcmToken': token,
+        });
+      }
+    } catch (e) {
+      print("Error fetching FCM Token: $e");
     }
   }
+
   // جلب الـ Access Token التلقائي من ملف Service Account JSON
   static Future<String> _getAccessToken() async {
-    final serviceAccountJson =
-        await rootBundle.loadString('assets/service_account/service_account.json');
+    final serviceAccountJson = await rootBundle
+        .loadString('assets/service_account/service_account.json');
 
     final accountCredentials =
         ServiceAccountCredentials.fromJson(serviceAccountJson);
@@ -113,12 +128,13 @@ class NotificationService {
   }) async {
     try {
       final String token = await _getAccessToken();
-      
+
       // استبدل "chatapp-4a9e1" بـ Project ID الخاص بك إن كان مختلفاً
-      const String projectId = "chatapp-4a9e1"; 
+      const String projectId = "chatapp-4a9e1";
 
       await http.post(
-        Uri.parse('https://fcm.googleapis.com/v1/projects/$projectId/messages:send'),
+        Uri.parse(
+            'https://fcm.googleapis.com/v1/projects/$projectId/messages:send'),
         headers: <String, String>{
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',

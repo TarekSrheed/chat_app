@@ -1,5 +1,6 @@
 import 'package:chat_app/features/data/remote/service/presence_service.dart';
 import 'package:chat_app/features/view/screens/home_screen.dart';
+import 'package:chat_app/features/view/widgets/group_utils.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
@@ -38,20 +39,6 @@ class _GroupInfoState extends State<GroupInfo> {
     setState(() {
       members = val;
     });
-  }
-
-  String getName(String r) {
-    if (r.contains("_")) {
-      return r.substring(r.indexOf("_") + 1);
-    }
-    return r;
-  }
-
-  String getId(String res) {
-    if (res.contains("_")) {
-      return res.substring(0, res.indexOf("_"));
-    }
-    return res;
   }
 
   @override
@@ -94,7 +81,7 @@ class _GroupInfoState extends State<GroupInfo> {
                                           .instance.currentUser!.uid)
                                   .toggleGroupJoin(
                                       widget.groupId,
-                                      getName(widget.adminName),
+                                      GroupUtils.getName(widget.adminName),
                                       widget.groupName)
                                   .whenComplete(() {
                                 nextScreenReplace(context, const HomeScreen());
@@ -149,7 +136,7 @@ class _GroupInfoState extends State<GroupInfo> {
                         ),
                         const SizedBox(height: 5),
                         Text(
-                          "Admin: ${getName(widget.adminName)}",
+                          "Admin: ${GroupUtils.getName(widget.adminName)}",
                           style: const TextStyle(color: Colors.grey),
                         )
                       ],
@@ -181,7 +168,7 @@ class _GroupInfoState extends State<GroupInfo> {
               itemBuilder: (context, index) {
                 final rawMember = membersList[index].toString();
                 // استخراج الـ UID سواء كان نصاً صريحاً أو نصاً مركباً old_format (uid_name)
-                final userId = getId(rawMember);
+                final userId = GroupUtils.getId(rawMember);
 
                 return buildMemberTile(userId);
               },

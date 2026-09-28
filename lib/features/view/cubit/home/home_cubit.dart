@@ -1,4 +1,4 @@
-import 'package:chat_app/features/data/remote/service/home_repository.dart';
+import 'package:chat_app/features/view/repository/home_repository.dart';
 import 'package:chat_app/features/data/remote/service/presence_service.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -7,7 +7,7 @@ import 'home_state.dart';
 
 class HomeCubit extends Cubit<HomeState> {
   final HomeRepository _homeRepository = HomeRepository();
-  
+
   String userName = '';
   String email = '';
   Stream<QuerySnapshot>? groupsStream;
@@ -27,7 +27,8 @@ class HomeCubit extends Cubit<HomeState> {
       final userData = await _homeRepository.getUserData();
       userName = userData.userName;
       email = userData.email;
-      groupsStream = _homeRepository.getGroupsStream(FirebaseAuth.instance.currentUser!.uid);
+      groupsStream = _homeRepository
+          .getGroupsStream(FirebaseAuth.instance.currentUser!.uid);
 
       emit(HomeLoaded(
         groupsStream: groupsStream,

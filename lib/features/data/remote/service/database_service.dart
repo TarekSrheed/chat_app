@@ -1,6 +1,7 @@
 import 'package:chat_app/features/data/remote/models/category_model.dart';
 import 'package:chat_app/features/data/remote/models/user_model.dart';
 import 'package:chat_app/features/data/remote/service/notification_service.dart';
+import 'package:chat_app/features/view/widgets/group_utils.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class DatabaseService {
@@ -39,7 +40,6 @@ class DatabaseService {
       return CategoryModel.fromMap(doc.data() as Map<String, dynamic>);
     }).toList();
   }
-  
 
   // تحديث الاسم الشخصي للمستخدم
   Future<void> updateUserData(String newName) async {
@@ -122,7 +122,8 @@ class DatabaseService {
     if (uid == null) return false;
     final DocumentSnapshot groupDoc = await groupCollection.doc(groupId).get();
     if (groupDoc.exists && groupDoc.data() != null) {
-      List<dynamic> members = (groupDoc.data() as Map<String, dynamic>)['members'] ?? [];
+      List<dynamic> members =
+          (groupDoc.data() as Map<String, dynamic>)['members'] ?? [];
       return members.contains(uid);
     }
     return false;
@@ -148,7 +149,7 @@ class DatabaseService {
     }
   }
 
-  // إرسال رسالة وتحديث بيانات أحدث رسالة بالوقت نفسه
+// إرسال رسالة وتحديث بيانات أحدث رسالة وإرسال الإشعارات
   Future<void> sendMessage(
       String groupId, Map<String, dynamic> chatMessageData) async {
     // 1. إضافة الرسالة للمجموعة الفرعية messages
@@ -157,34 +158,48 @@ class DatabaseService {
         .collection("messages")
         .add(chatMessageData);
 
-    // 2. تحديث بيانات أحدث رسالة في مستند المجموعة الرئيسي (Inbox Preview)
+    // 2. تحديث بيانات أحدث رسالة في مستند المجموعة الرئيسي
     await groupCollection.doc(groupId).update({
-      "recentMessage": chatMessageData['message'] ?? chatMessageData['text'] ?? "",
+      "recentMessage":
+          chatMessageData['message'] ?? chatMessageData['text'] ?? "",
       "recentMessageSender": chatMessageData['sender'] ?? "",
-      "recentMessageTime": chatMessageData['time'] ?? FieldValue.serverTimestamp(),
+      "recentMessageTime":
+          chatMessageData['time'] ?? FieldValue.serverTimestamp(),
     });
-    // 3. إرسال الإشعار لأعضاء المجموعة (باستثناء المُرْسِل نفسه)
-    final groupDoc = await groupCollection.doc(groupId).get();
-    if (groupDoc.exists) {
-      List<dynamic> members = groupDoc['members'] ?? [];
-      String groupName = groupDoc['groupName'] ?? "مجموعة جديدة";
 
-      for (String memberUid in members) {
-        if (memberUid != uid) { // عدم إرسال الإشعار للمستخدِم الذي أرسل الرسالة
-          final userDoc = await userCollection.doc(memberUid).get();
-          if (userDoc.exists && userDoc.data() != null) {
-            String? fcmToken = (userDoc.data() as Map<String, dynamic>)['fcmToken'];
-            if (fcmToken != null && fcmToken.isNotEmpty) {
-              await NotificationService.sendPushNotification(
-                targetToken: fcmToken,
-                title: groupName,
-                body: "${chatMessageData['sender']}: ${chatMessageData['message']}",
-                data: {
-                  "groupId": groupId,
-                  "groupName": groupName,
-                },
-              );
-            }
+    // 3. إرسال الإشعار لأعضاء المجموعة (باستثناء المُرْسِل)
+    final groupDoc = await groupCollection.doc(groupId).get();
+    if (!groupDoc.exists) return;
+
+    final List<dynamic> members = groupDoc['members'] ?? [];
+    final String groupName = groupDoc['groupName'] ?? "مجموعة جديدة";
+    final String senderName = chatMessageData['sender'] ?? "";
+    final String messageText =
+        chatMessageData['message'] ?? chatMessageData['text'] ?? "";
+
+    for (String member in members) {
+      // استخراج الـ ID الحقيقي سواء كان "uid" أو "uid_username"
+      final String memberId = GroupUtils.getId(member);
+
+      // التأكد الصارم من استثناء المرسل الحالي
+      if (memberId != uid) {
+        final userDoc = await userCollection.doc(memberId).get();
+
+        if (userDoc.exists && userDoc.data() != null) {
+          final userData = userDoc.data() as Map<String, dynamic>;
+          final String? fcmToken = userData['fcmToken'];
+
+          if (fcmToken != null && fcmToken.isNotEmpty) {
+            await NotificationService.sendPushNotification(
+              targetToken: fcmToken,
+              title: groupName,
+              body: "$senderName: $messageText",
+              data: {
+                "groupId": groupId,
+                "groupName": groupName,
+                "senderId": uid, // إرسال senderId للتحقق الإضافي في الواجهة
+              },
+            );
           }
         }
       }

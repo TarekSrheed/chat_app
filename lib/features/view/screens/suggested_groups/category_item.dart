@@ -1,4 +1,4 @@
-import 'package:chat_app/features/view/screens/group_category_body.dart';
+import 'package:chat_app/features/view/screens/suggested_groups/group_category_body.dart';
 import 'package:flutter/material.dart';
 
 class CategoryItem extends StatelessWidget {

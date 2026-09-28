@@ -2,13 +2,12 @@ import 'package:chat_app/features/view/screens/auth/login_screen.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../../data/remote/service/auth_service.dart';
 import '../../../../core/shared/constants.dart';
 import '../../widgets/widgets.dart';
-import '../hobby_screen.dart';
+import 'selected_hobby_screen.dart';
 
 class RegistrationScreen extends StatefulWidget {
-  const RegistrationScreen({Key? key}) : super(key: key);
+  const RegistrationScreen({super.key});
 
   @override
   State<RegistrationScreen> createState() => _RegistrationScreenState();
@@ -20,7 +19,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   bool _isLoading = false;
   String fullName = "";
   String age = "";
-  AuthService authService = AuthService();
   final formKey = GlobalKey<FormState>();
   @override
   Widget build(BuildContext context) {
@@ -199,14 +197,14 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     );
   }
 
-  register() {
+  void register() {
     if (formKey.currentState!.validate()) {
       setState(() {
         _isLoading = true;
       });
       nextScreen(
         context,
-        HobbyScreen(
+        SelectedHobbyScreen(
           email: email,
           password: password,
           fullName: fullName,
@@ -214,35 +212,5 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         ),
       );
     }
-    // } else {
-    //   showSnackbar(context, Colors.red, );
-    //   setState(() {
-    //     _isLoading = false;
-    //   });
-    // }
   }
-  // register() async {
-  //   if (formKey.currentState!.validate()) {
-  //     setState(() {
-  //       _isLoading = true;
-  //     });
-  //     await authService
-  //         .registerUserWithEmailandPassword(fullName, email, password, age)
-  //         .then((value) async {
-  //       if (value == true) {
-  //         // saving the shared preference state
-  //         await HelperFunctions.saveUserLoggedInStatus(true);
-  //         await HelperFunctions.saveUserEmailSF(email);
-  //         await HelperFunctions.saveUserNameSF(fullName);
-  //         await HelperFunctions.saveUserAgeSF(age);
-  //         nextScreen(context, hobbyScreen());
-  //       } else {
-  //         showSnackbar(context, Colors.red, value);
-  //         setState(() {
-  //           _isLoading = false;
-  //         });
-  //       }
-  //     });
-  //   }
-  // }
 }

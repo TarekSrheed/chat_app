@@ -1,9 +1,10 @@
+import 'package:chat_app/core/shared/app_string.dart';
 import 'package:chat_app/features/data/remote/service/auth_service.dart';
 import 'package:chat_app/features/view/screens/auth/login_screen.dart';
 import 'package:chat_app/features/view/screens/categories_screen.dart';
 import 'package:chat_app/features/view/screens/home_screen.dart';
 import 'package:chat_app/features/view/screens/profile_screen.dart';
-import 'package:chat_app/features/view/screens/suggested_groups.dart';
+import 'package:chat_app/features/view/screens/suggested_groups/suggested_groups.dart';
 import 'package:chat_app/features/view/widgets/widgets.dart';
 import 'package:flutter/material.dart';
 
@@ -22,7 +23,7 @@ Widget myDrawer(
       builder: (context) => AlertDialog(
         title: const Text("Logout",
             style: TextStyle(color: Colors.black, fontSize: 22)),
-        content: const Text("Are you sure you want to logout?"),
+        content: const Text(AppString.areYouSureLogout),
         actions: [
           IconButton(
             onPressed: () => Navigator.pop(context),
@@ -58,7 +59,7 @@ Widget myDrawer(
         ),
         const SizedBox(height: 12),
         Text(
-          userName.isEmpty ? 'Welcome' : userName,
+          userName.isEmpty ? AppString.welcome : userName,
           textAlign: TextAlign.center,
           style: Theme.of(context)
               .textTheme
@@ -67,33 +68,34 @@ Widget myDrawer(
         ),
         const SizedBox(height: 16),
         const Divider(),
-        _buildDrawerItem(Icons.groups, 'Groups', currentRoute == 'Groups', () {
-          currentRoute == 'Groups'
+        _buildDrawerItem(
+            Icons.groups, AppString.groups, currentRoute == AppString.groups,
+            () {
+          currentRoute == AppString.groups
               ? Navigator.pop(context)
               : nextScreenReplace(context, const HomeScreen());
         }, context),
-        _buildDrawerItem(Icons.person, 'Profile', currentRoute == 'Profile',
+        _buildDrawerItem(
+            Icons.person, AppString.profile, currentRoute == AppString.profile,
             () {
           nextScreenReplace(
             context,
             ProfileScreen(userName: userName, email: email),
           );
         }, context),
-        _buildDrawerItem(
-            Icons.group, 'Suggested groups', currentRoute == 'Suggested groups',
-            () {
+        _buildDrawerItem(Icons.group, AppString.suggestedGroups,
+            currentRoute == AppString.suggestedGroups, () {
           nextScreenReplace(context, const SuggestedGroups());
         }, context),
-        _buildDrawerItem(
-            Icons.category_rounded, 'Categories', currentRoute == 'Categories',
-            () {
+        _buildDrawerItem(Icons.category_rounded, AppString.categories,
+            currentRoute == AppString.categories, () {
           nextScreenReplace(
             context,
             CategoriesScreen(userName: userName, email: email),
           );
         }, context),
-        _buildDrawerItem(
-            Icons.exit_to_app, 'Logout', false, showLogoutDialog, context),
+        _buildDrawerItem(Icons.exit_to_app, AppString.logout, false,
+            showLogoutDialog, context),
       ],
     ),
   );
