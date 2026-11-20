@@ -31,9 +31,11 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 /build/
-assets/service_account/service_account.json
 lib/features/data/remote/models/appBrain.dart
 lib/firebase_options.dart
+android/key.properties
+lib/firebase_options.dart
+android/app/google-services.json
 
 # Web related
 lib/generated_plugin_registrant.dart
@@ -48,3 +50,14 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Cloudflare Worker secrets
+cloudflare-worker/.dev.vars
+cloudflare-worker/.env
+cloudflare-worker/.env.*
+cloudflare-worker/node_modules/
+cloudflare-worker/.wrangler/
+
+# Firebase service account keys
+**/service-account*.json
+**/firebase-adminsdk*.json

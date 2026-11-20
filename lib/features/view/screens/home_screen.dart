@@ -102,7 +102,6 @@ class _HomeScreenBody extends StatelessWidget {
               final String recentMessage = groupData['recentMessage'] ?? '';
               final String recentSender =
                   groupData['recentMessageSender'] ?? '';
-
               return buildGroupSearchTile(
                 groupId: groupId,
                 groupName: groupName,
@@ -127,7 +126,6 @@ class _HomeScreenBody extends StatelessWidget {
             },
           );
         }
-
         return _buildEmptyState(
           context,
           "You haven't joined any groups yet. Create one or search for new ones.",

@@ -1,7 +1,6 @@
 import 'package:chat_app/core/helper/helper_function.dart';
 import 'package:chat_app/features/data/remote/service/database_service.dart';
 import 'package:chat_app/features/view/cubit/group_search/group_search_state.dart';
-import 'package:chat_app/features/view/widgets/group_utils.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -32,7 +31,7 @@ class GroupSearchCubit extends Cubit<GroupSearchState> {
               await DatabaseService().searchBycategory(userHobbies[i]);
           snapshots[i] = snapshot;
 
-          _processSnapshotMembers(snapshot);
+          await _processSnapshotMembers(snapshot);
         }
       }
 
@@ -51,7 +50,7 @@ class GroupSearchCubit extends Cubit<GroupSearchState> {
       await loadUserData();
       final snapshot = await DatabaseService().searchBycategory(category);
       if (snapshot.docs.isNotEmpty) {
-        _processSnapshotMembers(snapshot);
+        await _processSnapshotMembers(snapshot);
       }
       emit(GroupSearchSuccess(
           snapshots: [snapshot], joinedStatusMap: Map.from(_joinedStatusMap)));
@@ -60,18 +59,16 @@ class GroupSearchCubit extends Cubit<GroupSearchState> {
     }
   }
 
-  void _processSnapshotMembers(QuerySnapshot snapshot) {
-    for (var doc in snapshot.docs) {
+  Future<void> _processSnapshotMembers(QuerySnapshot snapshot) async {
+    final userId = user?.uid;
+    if (userId == null) return;
+    final databaseService = DatabaseService(uid: userId);
+    final statuses = await Future.wait(snapshot.docs.map((doc) async {
       final data = doc.data() as Map<String, dynamic>;
-      final groupId = data['groupId'];
-      final List members = data['members'] ?? [];
-
-      _joinedStatusMap[groupId] = GroupUtils.isUserJoined(
-        members,
-        user?.uid ?? "",
-        userName,
-      );
-    }
+      final groupId = data['groupId'] as String? ?? doc.id;
+      return MapEntry(groupId, await databaseService.isUserJoined(groupId));
+    }));
+    _joinedStatusMap.addEntries(statuses);
   }
 
   /// التبديل الفوري بين الانضمام والمغادرة (Optimistic Update)
@@ -111,19 +108,34 @@ class GroupSearchCubit extends Cubit<GroupSearchState> {
   }
 
   Future<void> searchGroupByName(String query) async {
-    if (query.trim().isEmpty || user == null) return;
+    if (query.trim().isEmpty) {
+      emit(GroupSearchSuccess(
+        snapshots: const [null],
+        searchResults: const [],
+        joinedStatusMap: Map.from(_joinedStatusMap),
+      ));
+      return;
+    }
+    if (user == null) return;
 
     emit(GroupSearchLoading());
     try {
       await loadUserData();
-      final snapshot = await DatabaseService().searchByName(query);
+      final results = await DatabaseService().searchByName(query);
 
-      if (snapshot.docs.isNotEmpty) {
-        _processSnapshotMembers(snapshot);
-      }
+      final statuses = await Future.wait(results.map((doc) async {
+        final data = doc.data();
+        final groupId = data['groupId'] as String? ?? doc.id;
+        return MapEntry(
+          groupId,
+          await DatabaseService(uid: user!.uid).isUserJoined(groupId),
+        );
+      }));
+      _joinedStatusMap.addEntries(statuses);
 
       emit(GroupSearchSuccess(
-        snapshots: [snapshot],
+        snapshots: const [null],
+        searchResults: results,
         joinedStatusMap: Map.from(_joinedStatusMap),
       ));
     } catch (e) {

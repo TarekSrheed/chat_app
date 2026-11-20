@@ -197,7 +197,10 @@ class _GroupInfoState extends State<GroupInfo> {
   Widget buildMemberTile(String userId) {
     // 1. جلب بيانات المستخدم (مثل الاسم) من Firestore باستخدام Uid
     return FutureBuilder<DocumentSnapshot>(
-      future: FirebaseFirestore.instance.collection('users').doc(userId).get(),
+      future: FirebaseFirestore.instance
+          .collection('users_public')
+          .doc(userId)
+          .get(),
       builder: (context, userSnapshot) {
         String displayName = "Loading...";
         if (userSnapshot.hasData && userSnapshot.data!.exists) {

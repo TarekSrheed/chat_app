@@ -1,159 +1,283 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
+import 'package:chat_app/core/constants/api_constants.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'dart:convert';
-import 'package:flutter/services.dart';
-import 'package:googleapis_auth/auth_io.dart';
 import 'package:http/http.dart' as http;
+import 'package:chat_app/firebase_options.dart';
 
 @pragma('vm:entry-point')
-Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  print("Handling a background message: ${message.messageId}");
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
 }
 
 class NotificationService {
-  final FirebaseMessaging _fcm = FirebaseMessaging.instance;
-  final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin =
-      FlutterLocalNotificationsPlugin();
+  NotificationService._();
 
-  Future<void> initNotification() async {
-    // 1. طلب الصلاحية من المستخدم
-    NotificationSettings settings = await _fcm.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
+  static final NotificationService instance = NotificationService._();
+
+  final FirebaseMessaging _fcm = FirebaseMessaging.instance;
+  final FlutterLocalNotificationsPlugin _localNotifications =
+      FlutterLocalNotificationsPlugin();
+  final CollectionReference<Map<String, dynamic>> _tokenCollection =
+      FirebaseFirestore.instance.collection('fcmTokens');
+
+  Future<void> Function(Map<String, dynamic>)? _onNotificationTap;
+  bool _initialized = false;
+
+  Future<void> initNotification({
+    required Future<void> Function(Map<String, dynamic>) onNotificationTap,
+  }) async {
+    _onNotificationTap = onNotificationTap;
+    if (_initialized) return;
+
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+    await _fcm.setForegroundNotificationPresentationOptions(
+      alert: false,
+      badge: false,
+      sound: false,
     );
 
-    if (settings.authorizationStatus == AuthorizationStatus.authorized) {
-      print('User granted notification permission');
+    const androidChannel = AndroidNotificationChannel(
+      'group_chat_messages',
+      'Group chat messages',
+      description: 'Notifications for new group chat messages',
+      importance: Importance.high,
+    );
+    final androidNotifications =
+        _localNotifications.resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+    await androidNotifications?.createNotificationChannel(androidChannel);
+
+    const initializationSettings = InitializationSettings(
+      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      iOS: DarwinInitializationSettings(
+        requestAlertPermission: false,
+        requestBadgePermission: false,
+        requestSoundPermission: false,
+      ),
+      macOS: DarwinInitializationSettings(
+        requestAlertPermission: false,
+        requestBadgePermission: false,
+        requestSoundPermission: false,
+      ),
+    );
+    await _localNotifications.initialize(
+      settings: initializationSettings,
+      onDidReceiveNotificationResponse: (response) {
+        _handleLocalNotificationPayload(response.payload);
+      },
+    );
+    final launchDetails =
+        await _localNotifications.getNotificationAppLaunchDetails();
+    if (launchDetails?.didNotificationLaunchApp ?? false) {
+      _handleLocalNotificationPayload(
+        launchDetails?.notificationResponse?.payload,
+      );
     }
 
-    // 2. إعدادات التهيئة للأندرويد
-    const AndroidInitializationSettings initializationSettingsAndroid =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
-
-    // تصحيح خطأ: إرسال المعامل كـ Named Parameter باسم initializationSettings
-    const InitializationSettings initializationSettings =
-        InitializationSettings(
-      android: initializationSettingsAndroid,
-    );
-
-    // تصحيح خطأ: إرسال المعامل كـ Named Parameter باسم settings
-    await _flutterLocalNotificationsPlugin.initialize(
-      settings: initializationSettings,
-    );
-
-    // 3. ربط معالج خلفية Firebase
-    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-
-    // 4. الاستماع للإشعارات عندما يكون التطبيق مفتوحاً (Foreground)
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      RemoteNotification? notification = message.notification;
-      AndroidNotification? android = message.notification?.android;
-
-      if (notification != null && android != null) {
-        // تصحيح خطأ: تمرير المعاملات المحددة بالأسماء (id, title, body, notificationDetails)
-        _flutterLocalNotificationsPlugin.show(
-          id: notification.hashCode,
-          title: notification.title,
-          body: notification.body,
-          notificationDetails: const NotificationDetails(
-            android: AndroidNotificationDetails(
-              'high_importance_channel',
-              'High Importance Notifications',
-              importance: Importance.max,
-              priority: Priority.high,
-              icon: '@mipmap/ic_launcher',
-            ),
-          ),
-        );
-      }
+    FirebaseMessaging.onMessage.listen((message) {
+      unawaited(_showForegroundNotification(message));
     });
+    FirebaseMessaging.onMessageOpenedApp.listen((message) {
+      unawaited(_openNotification(message.data));
+    });
+    _fcm.onTokenRefresh.listen(
+      (token) {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) unawaited(_registerToken(user.uid, token));
+      },
+      onError: (Object error) {
+        debugPrint('FCM token refresh listener failed (${error.runtimeType}).');
+      },
+    );
 
-    // 5. حفظ رمز الجهاز FCM Token
-    // بدلاً من await saveDeviceToken();
-    // استدعها بدون await أو داخل try-catch منعاً لأنهار التطبيق عند فشل الاتصال:
-    // saveDeviceToken().catchError((e) => print("Token save error: $e"));
-    await saveDeviceToken();
+    FirebaseAuth.instance.authStateChanges().listen(
+      (user) {
+        if (user != null) unawaited(_requestPermissionAndRegister(user));
+      },
+      onError: (Object error) {
+        debugPrint(
+            'FCM authentication listener failed (${error.runtimeType}).');
+      },
+    );
+
+    final initialMessage = await _fcm.getInitialMessage();
+    if (initialMessage != null) {
+      await _openNotification(initialMessage.data);
+    }
+    _initialized = true;
   }
 
   Future<void> saveDeviceToken() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-
-      // محاولة جلب التوكن بأمان
-      String? token = await _fcm.getToken().timeout(
-            const Duration(seconds: 10),
-            onTimeout: () => null,
-          );
-
-      if (token != null) {
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .update({
-          'fcmToken': token,
-        });
+      final token = await _fcm.getToken().timeout(const Duration(seconds: 10));
+      if (token != null && token.isNotEmpty) {
+        await _registerToken(user.uid, token);
       }
-    } catch (e) {
-      print("Error fetching FCM Token: $e");
+    } on Exception catch (error) {
+      debugPrint('Unable to register FCM token (${error.runtimeType}).');
     }
   }
 
-  // جلب الـ Access Token التلقائي من ملف Service Account JSON
-  static Future<String> _getAccessToken() async {
-    final serviceAccountJson = await rootBundle
-        .loadString('assets/service_account/service_account.json');
+  Future<void> removeCurrentDeviceToken() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
 
-    final accountCredentials =
-        ServiceAccountCredentials.fromJson(serviceAccountJson);
-
-    final scopes = ['https://www.googleapis.com/auth/firebase.messaging'];
-
-    final client = await clientViaServiceAccount(accountCredentials, scopes);
-    final accessToken = client.credentials.accessToken.data;
-    client.close();
-
-    return accessToken;
+    try {
+      final token = await _fcm.getToken().timeout(const Duration(seconds: 5));
+      if (token == null || token.isEmpty) return;
+      await _tokenCollection
+          .doc(_tokenDocumentId(user.uid, token))
+          .delete()
+          .timeout(const Duration(seconds: 5));
+      await _fcm.deleteToken();
+    } on Exception catch (error) {
+      debugPrint(
+          'Unable to remove the current FCM token (${error.runtimeType}).');
+    }
   }
 
-  // دالة إرسال الإشعار الحديثة (FCM HTTP v1)
-  static Future<void> sendPushNotification({
-    required String targetToken,
-    required String title,
-    required String body,
-    Map<String, dynamic>? data,
+  Future<void> sendMessageNotification({
+    required String groupId,
+    required String messageId,
   }) async {
     try {
-      final String token = await _getAccessToken();
+      final uri = Uri.parse(ApiConstants.notificationApi);
+      if (uri.scheme != 'https' && uri.host != 'localhost') {
+        debugPrint('Push API URL must use HTTPS.');
+        return;
+      }
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      final idToken = await user.getIdToken();
+      if (idToken == null || idToken.isEmpty) {
+        debugPrint('Unable to obtain a Firebase ID token for push delivery.');
+        return;
+      }
 
-      // استبدل "chatapp-4a9e1" بـ Project ID الخاص بك إن كان مختلفاً
-      const String projectId = "chatapp-4a9e1";
-
-      await http.post(
-        Uri.parse(
-            'https://fcm.googleapis.com/v1/projects/$projectId/messages:send'),
-        headers: <String, String>{
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode(
-          <String, dynamic>{
-            'message': {
-              'token': targetToken,
-              'notification': {
-                'title': title,
-                'body': body,
-              },
-              'data': data ?? {},
+      final response = await http
+          .post(
+            uri,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $idToken',
             },
-          },
-        ),
+            body: jsonEncode({
+              'groupId': groupId,
+              'messageId': messageId,
+            }),
+          )
+          .timeout(const Duration(seconds: 8));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        debugPrint('Push API returned HTTP ${response.statusCode}.');
+      }
+    } on Exception catch (error) {
+      debugPrint(
+        'Push delivery request failed after the message was saved '
+        '(${error.runtimeType}).',
       );
-    } catch (e) {
-      print("Error sending push notification: $e");
+    } catch (error) {
+      debugPrint(
+        'Push delivery request failed after the message was saved '
+        '(${error.runtimeType}).',
+      );
     }
+  }
+
+  Future<void> _requestPermissionAndRegister(User user) async {
+    try {
+      final settings = await _fcm.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      if (settings.authorizationStatus == AuthorizationStatus.denied) return;
+      final token = await _fcm.getToken().timeout(const Duration(seconds: 10));
+      if (token != null && token.isNotEmpty) {
+        await _registerToken(user.uid, token);
+      }
+    } on Exception catch (error) {
+      debugPrint(
+        'Unable to request notification permission (${error.runtimeType}).',
+      );
+    }
+  }
+
+  Future<void> _registerToken(String userId, String token) async {
+    try {
+      await _tokenCollection.doc(_tokenDocumentId(userId, token)).set({
+        'uid': userId,
+        'token': token,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      debugPrint('PUSH_DEBUG: FCM token saved successfully');
+    } on FirebaseException catch (error) {
+      debugPrint('FCM token registration was rejected (${error.code}).');
+    } on Exception catch (error) {
+      debugPrint('Unable to register FCM token (${error.runtimeType}).');
+    }
+  }
+
+  String _tokenDocumentId(String userId, String token) =>
+      sha256.convert(utf8.encode('$userId:$token')).toString();
+
+  void _handleLocalNotificationPayload(String? payload) {
+    if (payload == null || payload.isEmpty) return;
+    try {
+      final decoded = jsonDecode(payload);
+      if (decoded is Map<String, dynamic>) {
+        unawaited(_openNotification(decoded));
+      }
+    } on FormatException {
+      debugPrint('Ignoring an invalid local notification payload.');
+    }
+  }
+
+  Future<void> _showForegroundNotification(RemoteMessage message) async {
+    final notification = message.notification;
+    if (notification == null) return;
+    try {
+      await _localNotifications.show(
+        id: message.messageId?.hashCode ??
+            DateTime.now().millisecondsSinceEpoch,
+        title: notification.title,
+        body: notification.body,
+        notificationDetails: const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'group_chat_messages',
+            'Group chat messages',
+            channelDescription: 'Notifications for new group chat messages',
+            importance: Importance.high,
+            priority: Priority.high,
+            icon: '@mipmap/ic_launcher',
+          ),
+          iOS: DarwinNotificationDetails(),
+          macOS: DarwinNotificationDetails(),
+        ),
+        payload: jsonEncode(message.data),
+      );
+    } on Exception catch (error) {
+      debugPrint(
+          'Unable to show a foreground notification (${error.runtimeType}).');
+    }
+  }
+
+  Future<void> _openNotification(Map<String, dynamic> data) async {
+    final groupId = data['groupId'];
+    if (groupId is! String || groupId.isEmpty || groupId.length > 150) return;
+    final callback = _onNotificationTap;
+    if (callback != null) await callback(data);
   }
 }

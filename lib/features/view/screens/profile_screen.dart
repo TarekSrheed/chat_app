@@ -22,30 +22,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String age = "";
   String newName = "";
   bool _isLoading = false;
+  final TextEditingController _nameController = TextEditingController();
 
   User? user;
   @override
   void initState() {
     super.initState();
+    userName = widget.userName;
+    email = widget.email;
     getCurrentUserIdandName();
   }
 
-  getCurrentUserIdandName() async {
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> getCurrentUserIdandName() async {
     await HelperFunctions.getUserNameFromSF().then((value) {
+      if (!mounted) return;
       setState(() {
-        userName = value!;
+        userName = value ?? '';
       });
     });
     await HelperFunctions.getUserEmailFromSF().then((value) {
+      if (!mounted) return;
       setState(() {
-        email = value!;
+        email = value ?? '';
       });
     });
     await HelperFunctions.getUserAgeFromSF().then((value) {
+      if (!mounted) return;
       setState(() {
-        age = value!;
+        age = value ?? '';
       });
     });
+    if (!mounted) return;
     user = FirebaseAuth.instance.currentUser;
   }
 
@@ -79,7 +92,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 const SizedBox(
                   width: 100,
                 ),
-                Text(widget.userName, style: const TextStyle(fontSize: 15)),
+                Text(userName, style: const TextStyle(fontSize: 15)),
                 IconButton(
                     onPressed: () {
                       popUpDialog(context);
@@ -125,8 +138,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  popUpDialog(BuildContext context) {
-    showDialog(
+  Future<void> popUpDialog(BuildContext context) {
+    return showDialog(
         barrierDismissible: false,
         context: context,
         builder: (context) {
@@ -149,11 +162,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               color: Theme.of(context).primaryColor),
                         )
                       : TextField(
-                          onChanged: (val) {
-                            setState(() {
-                              newName = val;
-                            });
-                          },
+                          controller: _nameController,
+                          onChanged: (val) => setState(() => newName = val),
                           style: const TextStyle(color: Colors.black),
                           decoration: InputDecoration(
                               hintText: 'Enter your new name',
@@ -185,30 +195,47 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   },
                   style: ElevatedButton.styleFrom(
                       backgroundColor: Theme.of(context).primaryColor),
-                  child: const Text("CANCEL"),
+                  child: const Text("CANCEL",
+                      style: TextStyle(color: Colors.white)),
                 ),
                 ElevatedButton(
                   onPressed: () async {
-                    if (newName != "") {
-                      // setState(() {
-                      //   _isLoading = true;
-                      // });
-                      DatabaseService(
-                              uid: FirebaseAuth.instance.currentUser!.uid)
-                          .updateUserData(
-                        newName,
-                      );
-                      //     .whenComplete(() {
-                      //   _isLoading = false;
-                      // });
+                    if (newName.trim().isNotEmpty) {
+                      setState(() => _isLoading = true);
+                      try {
+                        await DatabaseService(
+                          uid: FirebaseAuth.instance.currentUser!.uid,
+                        ).updateUserData(newName.trim());
+                        await HelperFunctions.saveUserNameSF(newName.trim());
+                      } on Exception catch (error) {
+                        setState(() => _isLoading = false);
+                        if (!context.mounted) return;
+                        showSnackbar(
+                          context,
+                          Colors.red,
+                          'Unable to update your name (${error.runtimeType}).',
+                        );
+                        return;
+                      }
+                      if (!context.mounted) return;
+                      this.setState(() {
+                        _isLoading = false;
+                        userName = newName.trim();
+                        newName = "";
+                        _nameController.clear();
+                      });
                       Navigator.of(context).pop();
-                      showSnackbarProfile(context, Colors.green,
-                          "You need to re-login to update your name");
+                      showSnackbar(
+                        context,
+                        Colors.green,
+                        "Name updated successfully",
+                      );
                     }
                   },
                   style: ElevatedButton.styleFrom(
                       backgroundColor: Theme.of(context).primaryColor),
-                  child: const Text("UPDATE"),
+                  child: const Text("UPDATE",
+                      style: TextStyle(color: Colors.white)),
                 )
               ],
             );

@@ -1,0 +1,11 @@
+name = "chat-app-push-api"
+main = "src/index.js"
+compatibility_date = "2026-11-15"
+workers_dev = true
+
+[vars]
+FIREBASE_PROJECT_ID = "chatapp-4a9e1"
+ALLOWED_ORIGINS = ""
+MAX_NOTIFICATION_RECIPIENTS = "30"
+RATE_LIMIT_REQUESTS = "20"
+RATE_LIMIT_WINDOW_SECONDS = "60"

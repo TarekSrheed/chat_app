@@ -72,10 +72,17 @@ class AuthCubit extends Cubit<AuthState> {
             await DatabaseService(uid: FirebaseAuth.instance.currentUser!.uid)
                 .gettingUserData(email);
 
+        if (user == null) {
+          emit(AuthFailure('Your profile could not be loaded.'));
+          return;
+        }
+
         // saving the values to our shared preferences
         await HelperFunctions.saveUserLoggedInStatus(true);
         await HelperFunctions.saveUserEmailSF(email);
-        await HelperFunctions.saveUserNameSF(user!.fullName);
+        await HelperFunctions.saveUserNameSF(user.fullName);
+        await HelperFunctions.saveUserAgeSF(user.age);
+        await HelperFunctions.saveUserHobbiesSF(user.hobbies);
         emit(AuthSuccess());
       } else {
         emit(AuthFailure(result.toString()));

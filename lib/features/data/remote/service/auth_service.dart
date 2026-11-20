@@ -1,4 +1,5 @@
 import 'package:chat_app/features/data/remote/models/user_model.dart';
+import 'package:chat_app/features/data/remote/service/notification_service.dart';
 import 'package:chat_app/features/data/remote/service/presence_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -42,7 +43,7 @@ class AuthService {
             fullName: fullName,
             profilePic: "",
             groups: const [],
-            email: email,
+            email: user.email ?? email,
             age: age,
             hobbies: hobbies,
           ),
@@ -58,6 +59,7 @@ class AuthService {
   Future signOut() async {
     try {
       await PresenceService().setOffline();
+      await NotificationService.instance.removeCurrentDeviceToken();
       await HelperFunctions.saveUserLoggedInStatus(false);
       await HelperFunctions.saveUserEmailSF('');
       await HelperFunctions.saveUserNameSF('');

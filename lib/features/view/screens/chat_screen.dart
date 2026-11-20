@@ -1,6 +1,7 @@
 import 'package:chat_app/features/view/cubit/chat_cubit/chat_cubit.dart';
 import 'package:chat_app/features/view/cubit/chat_cubit/chat_state.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../widgets/messeage_tile.dart';
@@ -193,7 +194,8 @@ class _ChatScreenBodyState extends State<_ChatScreenBody> {
             return MessageTile(
               message: message,
               sender: sender,
-              sentByMe: widget.userName == sender,
+              sentByMe:
+                  doc['senderId'] == FirebaseAuth.instance.currentUser?.uid,
             );
           },
         );

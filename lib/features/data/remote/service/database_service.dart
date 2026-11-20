@@ -1,208 +1,379 @@
+import 'dart:async';
+
 import 'package:chat_app/features/data/remote/models/category_model.dart';
 import 'package:chat_app/features/data/remote/models/user_model.dart';
 import 'package:chat_app/features/data/remote/service/notification_service.dart';
 import 'package:chat_app/features/view/widgets/group_utils.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class DatabaseService {
   final String? uid;
   DatabaseService({this.uid});
 
-  // المراجع الخاصة بالمجموعات (Collections)
-  final CollectionReference userCollection =
-      FirebaseFirestore.instance.collection("users");
-  final CollectionReference groupCollection =
-      FirebaseFirestore.instance.collection("groups");
-  final CollectionReference categoryCollection =
-      FirebaseFirestore.instance.collection("categary");
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // حفظ بيانات المستخدم عند التسجيل
-  Future<void> savingUserData(UserModel user) async {
-    return userCollection.doc(uid).set(user.toMap());
+  CollectionReference<Map<String, dynamic>> get userCollection =>
+      _firestore.collection('users');
+  CollectionReference<Map<String, dynamic>> get publicUserCollection =>
+      _firestore.collection('users_public');
+  CollectionReference<Map<String, dynamic>> get groupCollection =>
+      _firestore.collection('groups');
+  CollectionReference<Map<String, dynamic>> get groupDirectoryCollection =>
+      _firestore.collection('groupDirectory');
+  CollectionReference<Map<String, dynamic>> get categoryCollection =>
+      _firestore.collection('categary');
+
+  String get _authenticatedUid {
+    final currentUid = uid ?? FirebaseAuth.instance.currentUser?.uid;
+    if (currentUid == null || currentUid.isEmpty) {
+      throw StateError('A signed-in user is required for this operation.');
+    }
+    return currentUid;
   }
 
-  // جلب بيانات المستخدم عبر البريد الإلكتروني
+  Future<void> savingUserData(UserModel user) async {
+    final userId = _authenticatedUid;
+    if (user.uid != userId) {
+      throw StateError('User profile UID does not match the signed-in user.');
+    }
+
+    final batch = _firestore.batch();
+    batch.set(userCollection.doc(userId), user.toMap());
+    batch.set(publicUserCollection.doc(userId), {
+      'uid': userId,
+      'fullName': user.fullName,
+      'profilePic': user.profilePic,
+    });
+    await batch.commit();
+  }
+
   Future<UserModel?> gettingUserData(String email) async {
-    final QuerySnapshot snapshot =
-        await userCollection.where("email", isEqualTo: email).get();
-    if (snapshot.docs.isNotEmpty) {
-      final userData = snapshot.docs.first.data() as Map<String, dynamic>;
-      return UserModel.fromMap(userData);
-    } else {
-      return null;
+    final userId = _authenticatedUid;
+    final snapshot = await userCollection.doc(userId).get();
+    final userData = snapshot.data();
+    if (userData == null || userData['email'] != email) return null;
+    return UserModel.fromMap(userData);
+  }
+
+  Future<void> migrateLegacyUserData() async {
+    final userId = _authenticatedUid;
+    final userSnapshot = await userCollection.doc(userId).get();
+    final userData = userSnapshot.data();
+    if (userData == null) return;
+
+    final profileReference = publicUserCollection.doc(userId);
+    final profileSnapshot = await profileReference.get();
+    if (!profileSnapshot.exists) {
+      await profileReference.set({
+        'uid': userId,
+        'fullName': userData['fullName'] ?? '',
+        'profilePic': userData['profilePic'] ?? '',
+      });
+    }
+
+    final memberGroups =
+        await groupCollection.where('members', arrayContains: userId).get();
+    for (final group in memberGroups.docs) {
+      await _ensureGroupMembershipAndDirectory(group);
     }
   }
 
-  // جلب جميع التصنيفات
   Future<List<CategoryModel>> getCategories() async {
-    final QuerySnapshot snapshot = await categoryCollection.get();
-    return snapshot.docs.map((doc) {
-      return CategoryModel.fromMap(doc.data() as Map<String, dynamic>);
-    }).toList();
+    final snapshot = await categoryCollection.get();
+    return snapshot.docs
+        .map((doc) => CategoryModel.fromMap(doc.data()))
+        .toList();
   }
 
-  // تحديث الاسم الشخصي للمستخدم
   Future<void> updateUserData(String newName) async {
-    await userCollection.doc(uid).update({'fullName': newName});
+    final userId = _authenticatedUid;
+    final name = newName.trim();
+    if (name.isEmpty) {
+      throw ArgumentError.value(newName, 'newName', 'Name cannot be empty.');
+    }
+    final userReference = userCollection.doc(userId);
+    final profileReference = publicUserCollection.doc(userId);
+    final userSnapshot = await userReference.get();
+    final privateUser = userSnapshot.data();
+    if (privateUser == null) {
+      throw StateError('The signed-in user profile is unavailable.');
+    }
+    final existingProfile = await profileReference.get();
+    final profilePic = existingProfile.data()?['profilePic'] ??
+        privateUser['profilePic'] ??
+        '';
+
+    final batch = _firestore.batch();
+    batch.update(userReference, {'fullName': name});
+    batch.set(profileReference, {
+      'uid': userId,
+      'fullName': name,
+      'profilePic': profilePic,
+    });
+    await batch.commit();
+
+    final authUser = FirebaseAuth.instance.currentUser;
+    if (authUser != null && authUser.uid == userId) {
+      await authUser.updateDisplayName(name);
+      await authUser.reload();
+    }
   }
 
-  // جلب المجموعات التي ينتمي إليها المستخدم حالياً (بدون الحاجة لمصفوفة groups في users)
   Stream<QuerySnapshot<Map<String, dynamic>>> getUserGroups() {
+    final userId = _authenticatedUid;
     return groupCollection
-        .where("members", arrayContains: uid)
+        .where('members', arrayContains: userId)
         .snapshots()
-        .cast<QuerySnapshot<Map<String, dynamic>>>();
+        .asyncMap((snapshot) async {
+      for (final group in snapshot.docs) {
+        await _ensureGroupMembershipAndDirectory(group);
+      }
+      return snapshot;
+    });
   }
 
-  // إنشاء مجموعة جديدة
+  Future<void> _ensureGroupMembershipAndDirectory(
+    QueryDocumentSnapshot<Map<String, dynamic>> group,
+  ) async {
+    final userId = _authenticatedUid;
+    final membershipReference =
+        group.reference.collection('members').doc(userId);
+    final directoryReference = groupDirectoryCollection.doc(group.id);
+    final snapshots = await Future.wait([
+      membershipReference.get(),
+      directoryReference.get(),
+    ]);
+
+    final batch = _firestore.batch();
+    var hasWrites = false;
+    if (!snapshots[0].exists) {
+      batch.set(membershipReference, {
+        'uid': userId,
+        'groupId': group.id,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      hasWrites = true;
+    }
+
+    if (!snapshots[1].exists) {
+      final data = group.data();
+      batch.set(directoryReference, {
+        'groupId': group.id,
+        'groupName': data['groupName'] ?? '',
+        'category': data['category'] ?? '',
+        'groupIcon': data['groupIcon'] ?? '',
+        'adminName': data['adminName'] ?? '',
+        'createdAt': data['createdAt'] ?? FieldValue.serverTimestamp(),
+      });
+      hasWrites = true;
+    }
+
+    if (hasWrites) await batch.commit();
+  }
+
   Future<void> createGroup(
     String userName,
     String id,
     String groupName,
     String category,
   ) async {
-    final DocumentReference groupDocumentReference = await groupCollection.add({
-      "groupName": groupName,
-      "category": category,
-      "groupIcon": "",
-      "admin": uid,
-      "adminName": userName,
-      "members": [uid], // إضافة UID الصافي فقط
-      "groupId": "",
-      "recentMessage": "",
-      "recentMessageSender": "",
-      "recentMessageTime": FieldValue.serverTimestamp(),
-      "createdAt": FieldValue.serverTimestamp(),
-    });
+    final userId = _authenticatedUid;
+    final profile = await _getCurrentPublicProfile(userId);
+    final groupReference = groupCollection.doc();
+    final createdAt = FieldValue.serverTimestamp();
+    final data = <String, dynamic>{
+      'groupName': groupName.trim(),
+      'category': category,
+      'groupIcon': '',
+      'admin': userId,
+      'adminName': profile['fullName'],
+      'members': [userId],
+      'groupId': groupReference.id,
+      'recentMessage': '',
+      'recentMessageSender': '',
+      'recentMessageTime': createdAt,
+      'recentMessageId': '',
+      'createdAt': createdAt,
+    };
 
-    // تحديث groupId بداخل المستند برقم المستند المنشأ
-    await groupDocumentReference.update({
-      "groupId": groupDocumentReference.id,
+    final directoryReference = groupDirectoryCollection.doc(groupReference.id);
+    final batch = _firestore.batch();
+    batch.set(groupReference, data);
+    batch.set(directoryReference, {
+      'groupId': groupReference.id,
+      'groupName': data['groupName'],
+      'category': data['category'],
+      'groupIcon': data['groupIcon'],
+      'adminName': data['adminName'],
+      'createdAt': createdAt,
     });
+    await batch.commit();
   }
 
-  // جلب الرسائل الفرعية للمجموعة مرتبة حسب الوقت
   Stream<QuerySnapshot<Map<String, dynamic>>> getChats(String groupId) {
     return groupCollection
         .doc(groupId)
         .collection('messages')
         .orderBy('time', descending: false)
-        .snapshots()
-        .cast<QuerySnapshot<Map<String, dynamic>>>();
+        .snapshots();
   }
 
-  // جلب UID أدمن المجموعة
   Future<String> getGroupAdmin(String groupId) async {
-    final DocumentSnapshot doc = await groupCollection.doc(groupId).get();
-    return doc['adminName'] as String;
+    final doc = await groupCollection.doc(groupId).get();
+    return doc.data()?['adminName'] as String? ?? '';
   }
 
-  // جلب بيانات المجموعة وأعضائها
   Stream<DocumentSnapshot<Map<String, dynamic>>> getGroupMembers(
     String groupId,
   ) {
-    return groupCollection
-        .doc(groupId)
-        .snapshots()
-        .cast<DocumentSnapshot<Map<String, dynamic>>>();
+    return groupCollection.doc(groupId).snapshots();
   }
 
-  // البحث عن مجموعة بالاسم
-  Future<QuerySnapshot> searchByName(String groupName) {
-    return groupCollection.where("groupName", isEqualTo: groupName).get();
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> searchByName(
+    String groupName,
+  ) async {
+    final query = groupName.trim().toLowerCase();
+    if (query.isEmpty) return [];
+
+    final snapshot = await groupDirectoryCollection.get();
+    return snapshot.docs.where((doc) {
+      final name = doc.data()['groupName'];
+      return name is String && name.toLowerCase().contains(query);
+    }).toList();
   }
 
-  // البحث عن المجموعات بتصنيف معني
-  Future<QuerySnapshot> searchBycategory(String category) {
-    return groupCollection.where("category", isEqualTo: category).get();
+  Future<QuerySnapshot<Map<String, dynamic>>> searchBycategory(
+    String category,
+  ) {
+    return groupDirectoryCollection
+        .where('category', isEqualTo: category)
+        .get();
   }
 
-  // التحقق من انضمام المستخدم عبر فحص مصفوفة members في مستند المجموعة المباشرة
   Future<bool> isUserJoined(String groupId) async {
-    if (uid == null) return false;
-    final DocumentSnapshot groupDoc = await groupCollection.doc(groupId).get();
-    if (groupDoc.exists && groupDoc.data() != null) {
-      List<dynamic> members =
-          (groupDoc.data() as Map<String, dynamic>)['members'] ?? [];
-      return members.contains(uid);
-    }
-    return false;
+    if (uid == null && FirebaseAuth.instance.currentUser == null) return false;
+    final userId = _authenticatedUid;
+    final membership = await groupCollection
+        .doc(groupId)
+        .collection('members')
+        .doc(userId)
+        .get();
+    return membership.exists;
   }
 
-  // الانضمام للمجموعة أو المغادرة منه
   Future<void> toggleGroupJoin(
-      String groupId, String userName, String groupName) async {
-    DocumentReference groupDocumentReference = groupCollection.doc(groupId);
-
-    bool joined = await isUserJoined(groupId);
+    String groupId,
+    String userName,
+    String groupName,
+  ) async {
+    final userId = _authenticatedUid;
+    final groupReference = groupCollection.doc(groupId);
+    final membershipReference =
+        groupReference.collection('members').doc(userId);
+    final joined = await isUserJoined(groupId);
+    final batch = _firestore.batch();
 
     if (joined) {
-      // إزالة UID المستخدم من مصفوفة الأعضاء
-      await groupDocumentReference.update({
-        "members": FieldValue.arrayRemove([uid])
-      });
+      final groupSnapshot = await groupReference.get();
+      final groupData = groupSnapshot.data();
+      if (groupData == null) {
+        throw StateError('The group no longer exists.');
+      }
+
+      final members = (groupData['members'] as List<dynamic>? ?? [])
+          .where((member) => GroupUtils.getId(member.toString()) != userId)
+          .toList();
+      batch.update(groupReference, {'members': members});
+      batch.delete(membershipReference);
     } else {
-      // إضافة UID المستخدم إلى مصفوفة الأعضاء
-      await groupDocumentReference.update({
-        "members": FieldValue.arrayUnion([uid])
+      batch.update(groupReference, {
+        'members': FieldValue.arrayUnion([userId]),
+      });
+      batch.set(membershipReference, {
+        'uid': userId,
+        'groupId': groupId,
+        'createdAt': FieldValue.serverTimestamp(),
       });
     }
+    await batch.commit();
   }
 
-// إرسال رسالة وتحديث بيانات أحدث رسالة وإرسال الإشعارات
   Future<void> sendMessage(
-      String groupId, Map<String, dynamic> chatMessageData) async {
-    // 1. إضافة الرسالة للمجموعة الفرعية messages
-    await groupCollection
-        .doc(groupId)
-        .collection("messages")
-        .add(chatMessageData);
-
-    // 2. تحديث بيانات أحدث رسالة في مستند المجموعة الرئيسي
-    await groupCollection.doc(groupId).update({
-      "recentMessage":
-          chatMessageData['message'] ?? chatMessageData['text'] ?? "",
-      "recentMessageSender": chatMessageData['sender'] ?? "",
-      "recentMessageTime":
-          chatMessageData['time'] ?? FieldValue.serverTimestamp(),
-    });
-
-    // 3. إرسال الإشعار لأعضاء المجموعة (باستثناء المُرْسِل)
-    final groupDoc = await groupCollection.doc(groupId).get();
-    if (!groupDoc.exists) return;
-
-    final List<dynamic> members = groupDoc['members'] ?? [];
-    final String groupName = groupDoc['groupName'] ?? "مجموعة جديدة";
-    final String senderName = chatMessageData['sender'] ?? "";
-    final String messageText =
-        chatMessageData['message'] ?? chatMessageData['text'] ?? "";
-
-    for (String member in members) {
-      // استخراج الـ ID الحقيقي سواء كان "uid" أو "uid_username"
-      final String memberId = GroupUtils.getId(member);
-
-      // التأكد الصارم من استثناء المرسل الحالي
-      if (memberId != uid) {
-        final userDoc = await userCollection.doc(memberId).get();
-
-        if (userDoc.exists && userDoc.data() != null) {
-          final userData = userDoc.data() as Map<String, dynamic>;
-          final String? fcmToken = userData['fcmToken'];
-
-          if (fcmToken != null && fcmToken.isNotEmpty) {
-            await NotificationService.sendPushNotification(
-              targetToken: fcmToken,
-              title: groupName,
-              body: "$senderName: $messageText",
-              data: {
-                "groupId": groupId,
-                "groupName": groupName,
-                "senderId": uid, // إرسال senderId للتحقق الإضافي في الواجهة
-              },
-            );
-          }
-        }
-      }
+    String groupId,
+    Map<String, dynamic> chatMessageData,
+  ) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      throw StateError('A signed-in user is required to send a message.');
     }
+    if (uid != null && uid != user.uid) {
+      throw StateError('The message sender does not match the signed-in user.');
+    }
+    final senderId = user.uid;
+    final message =
+        (chatMessageData['message'] ?? chatMessageData['text'] ?? '')
+            .toString()
+            .trim();
+    if (message.isEmpty || message.length > 4000) {
+      throw ArgumentError.value(message.length, 'message.length');
+    }
+
+    await _getCurrentPublicProfile(senderId);
+    final senderSnapshot = await userCollection.doc(senderId).get();
+    final senderName = senderSnapshot.data()?['fullName'];
+    if (senderName is! String || senderName.trim().isEmpty) {
+      throw StateError('The signed-in user profile has no display name.');
+    }
+    final messageReference =
+        groupCollection.doc(groupId).collection('messages').doc();
+    final messageTime = FieldValue.serverTimestamp();
+    final messageData = <String, dynamic>{
+      'groupId': groupId,
+      'message': message,
+      'sender': senderName.trim(),
+      'senderId': senderId,
+      'time': messageTime,
+    };
+
+    final batch = _firestore.batch();
+    batch.set(messageReference, messageData);
+    batch.update(groupCollection.doc(groupId), {
+      'recentMessage': message,
+      'recentMessageSender': senderName.trim(),
+      'recentMessageTime': messageTime,
+      'recentMessageId': messageReference.id,
+    });
+    await batch.commit();
+
+    unawaited(NotificationService.instance.sendMessageNotification(
+      groupId: groupId,
+      messageId: messageReference.id,
+    ));
+  }
+
+  Future<Map<String, dynamic>> _getCurrentPublicProfile(String userId) async {
+    final profileReference = publicUserCollection.doc(userId);
+    var profileSnapshot = await profileReference.get();
+    if (!profileSnapshot.exists) {
+      final privateSnapshot = await userCollection.doc(userId).get();
+      final privateUser = privateSnapshot.data();
+      if (privateUser == null) {
+        throw StateError('The signed-in user profile is unavailable.');
+      }
+      await profileReference.set({
+        'uid': userId,
+        'fullName': privateUser['fullName'] ?? '',
+        'profilePic': privateUser['profilePic'] ?? '',
+      });
+      profileSnapshot = await profileReference.get();
+    }
+
+    final profile = profileSnapshot.data();
+    final name = profile?['fullName'];
+    if (name is! String || name.trim().isEmpty) {
+      throw StateError('The signed-in user profile has no display name.');
+    }
+    return profile!;
   }
 }

@@ -55,4 +55,19 @@ class AppString {
   static const String yourFullName = "Your Full Name";
   static const String areYouSureLogout = "Are you sure you want to logout?";
   static const String dontHaveAccount = "Don't have an account? ";
+  static const String alreadyHaveAccount = "Already have an account? ";
+  static const String registerHere = "Register here";
+  static const String loginNow = "Login now";
+  static const String hobbies = "Hobbies";
+  static const String selectHobbies = "Select your hobbies";
+  static const String yourHobbies = "Your Hobbies";
+  static const String age = "Age";
+  static const String yourAge = "Your Age";
+  static const String enterYourAge = "Please enter your age";
+  static const String enterYourHobbies = "Please select at least one hobby";
+  static const String passwordTooShort =
+      "Password must be at least 6 characters";
+  static const String enterYourFullName = "Please enter your full name";
+  static const String loginNowToSeeWhatTheyAreTalking =
+      "Login now to see what they are talking!";
 }

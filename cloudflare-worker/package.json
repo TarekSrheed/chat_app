@@ -1,0 +1,11 @@
+{
+  "name": "chat-app-push-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "jose": "^6.1.0"
+  }
+}

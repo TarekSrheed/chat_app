@@ -1,14 +1,23 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 abstract class GroupSearchState {}
+
 class GroupSearchInitial extends GroupSearchState {}
+
 class GroupSearchLoading extends GroupSearchState {}
+
 class GroupSearchSuccess extends GroupSearchState {
   final List<QuerySnapshot?> snapshots;
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>>? searchResults;
   final Map<String, bool> joinedStatusMap;
 
-  GroupSearchSuccess({required this.snapshots, required this.joinedStatusMap});
+  GroupSearchSuccess({
+    required this.snapshots,
+    required this.joinedStatusMap,
+    this.searchResults,
+  });
 }
+
 class GroupSearchError extends GroupSearchState {
   final String message;
 

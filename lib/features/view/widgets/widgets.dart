@@ -20,11 +20,11 @@ const textInputDecoration = InputDecoration(
   ),
 );
 
-void nextScreen( BuildContext context, Widget page) {
+void nextScreen(BuildContext context, Widget page) {
   Navigator.push(context, MaterialPageRoute(builder: (context) => page));
 }
 
-void nextScreenReplace( BuildContext context, Widget page) {
+void nextScreenReplace(BuildContext context, Widget page) {
   Navigator.pushReplacement(
       context, MaterialPageRoute(builder: (context) => page));
 }
@@ -40,28 +40,9 @@ void showSnackbar(BuildContext context, Color color, String message) {
       ),
       backgroundColor: color,
       // 2. تحديد مدة العرض
-      duration: const Duration(seconds: 1), 
-      // 3. طريقة ظهور واختفاء سلسة
-      behavior: SnackBarBehavior.floating, 
-      
-    ),
-  );
-}
-
-void showSnackbarProfile(BuildContext context, Color color, String message) {
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(
-        message,
-        style: const TextStyle(fontSize: 14),
-      ),
-      backgroundColor: color,
       duration: const Duration(seconds: 2),
-      action: SnackBarAction(
-        label: "OK",
-        onPressed: () {},
-        textColor: Colors.white,
-      ),
+      // 3. طريقة ظهور واختفاء سلسة
+      behavior: SnackBarBehavior.floating,
     ),
   );
 }
